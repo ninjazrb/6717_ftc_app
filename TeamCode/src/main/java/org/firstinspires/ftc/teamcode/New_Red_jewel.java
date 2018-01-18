@@ -6,14 +6,13 @@ import com.qualcomm.robotcore.hardware.ColorSensor;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.Range;
-import com.qualcomm.robotcore.util.ThreadPool;
 
 /**
  * Created by Zach on 11/14/2017.
  */
 
 @Autonomous
-public class Red_jewel extends LinearOpMode{
+public class New_Red_jewel extends LinearOpMode{
     // Motor Declarations
     DcMotor left_f;
     DcMotor right_f;

@@ -74,11 +74,6 @@ public class Vuforia_test extends LinearOpMode{
 
         RelicRecoveryVuMark vuMark = RelicRecoveryVuMark.from(target);
 
-        while(vuMark.toString() == "UNKNOWN")
-        {
-            setDrivePower(0.0, 0.3, 0.0);
-        }
-
         while(opModeIsActive()) {
 
             OpenGLMatrix latestLocation = listener.getUpdatedRobotLocation();
@@ -96,17 +91,15 @@ public class Vuforia_test extends LinearOpMode{
 
             angleToTarget = angleToTargetLocation(lastKnownLocation, target1Location);
 
-            telemetry.addData("Visible: ", vuMark);
-            telemetry.addData("Robot Location", "x:" + robotx + " y: " + roboty + " angle: " + robotAngle);
-
             if(vuMark.toString() != "UNKNOWN"){
-                setDrivePower(angleToTarget, .3, 0);
+                setDrivePower(angleToTarget, 1, 0);
             }
             else {
                 setDrivePower(angleToTarget, 0, 0);
             }
 
-
+            telemetry.addData("Visible: ", vuMark);
+            telemetry.addData("Robot Location", "x:" + robotx + " y: " + roboty + " angle: " + robotAngle);
             telemetry.update();
         }
     }
@@ -122,7 +115,7 @@ public class Vuforia_test extends LinearOpMode{
 
         target = visionTargets.get(0);
         target.setName("Left_Key");
-        target.setLocation(createMatrix(0,1000,0,90,0,90));
+        target.setLocation(createMatrix(0,1000,0,0,0,0));
 
         phoneLocation = createMatrix(0,0,0,90,0,90);
 
@@ -163,7 +156,7 @@ public class Vuforia_test extends LinearOpMode{
         return angle;
     }
 
-    public void setDrivePower(Double angleOfTravel, double speed, double skew) {
+    private void setDrivePower(Double angleOfTravel, double speed, double skew) {
         double RobotAngle = angleOfTravel - Math.PI/4;
 
         double lf = -Math.sin(RobotAngle);
@@ -171,16 +164,15 @@ public class Vuforia_test extends LinearOpMode{
         double rf = -Math.cos(RobotAngle);
         double lb = -Math.cos(RobotAngle);
 
-        double powers[] = driveSmoothing(lf, rb, rf, lb);
+        /*double powers[] = driveSmoothing(lf, rb, rf, lb);*/
 
-        lf = Range.clip(powers[0] * speed - skew, -1, 1);
-        rb = Range.clip(powers[1] * speed + skew, -1 , 1);
-        rf = Range.clip(powers[2] * speed + skew, -1, 1);
-        lb = Range.clip(powers[3] * speed - skew, -1, 1);
+        lf = Range.clip(lf * (speed*.5) + (skew*.5), -.5, .5);
+        rb = Range.clip(rb * (speed*.5) - (skew*.5), -.5, .5);
+        rf = Range.clip(rf * (speed*.5) - (skew*.5), -.5, .5);
+        lb = Range.clip(lb * (speed*.5) + (skew*.5), -.5, .5);
 
-        telemetry.addData("Left Front/Right Front: ", two_decimal.format(lf) + "/" + two_decimal.format(rf));
-        telemetry.addData("Left Back/Right Back: ", two_decimal.format(lb) + "/" + two_decimal.format(rb));
-        telemetry.update();
+        /*telemetry.addData("Left Front/Right Front: ", two_decimal.format(lf) + "/" + two_decimal.format(rf));
+        telemetry.addData("Left Back/Right Back: ", two_decimal.format(lb) + "/" + two_decimal.format(rb));*/
 
         left_b.setPower(lb);
         left_f.setPower(lf);

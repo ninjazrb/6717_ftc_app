@@ -39,18 +39,19 @@ public class Blue_jewel extends LinearOpMode{
         left_f.setDirection(DcMotor.Direction.REVERSE);
 
         gripper.setPosition(1.0);
-        hammer.setPosition(0);
+        hammer.setPosition(0.1);
 
         waitForStart();
 
         // Drop the hammer
-        hammer.setPosition(.5);
+        hammer.setPosition(0.17);
+        Thread.sleep(5000);
 
         // If the sensor sees red
         if(color.red() > color.green() && color.red() > color.blue()) {
             // Rotate towards (Clockwise)
             setDrivePower(0.0, 1.0, 1.0);
-            Thread.sleep(1000);
+            Thread.sleep(500);
             setDrivePower(0.0, 0.0, 0.0);
         }
 
@@ -58,10 +59,9 @@ public class Blue_jewel extends LinearOpMode{
         if(color.blue() > color.green() && color.blue() > color.red()) {
             // Rotate away (Counter-clockwise)
             setDrivePower(0.0, 1.0, -1.0);
-            Thread.sleep(1000);
+            Thread.sleep(500);
             setDrivePower(0.0, 0.0, 0.0);
         }
-
     }
 
     public void setDrivePower(Double angleOfTravel, double speed, double skew) {

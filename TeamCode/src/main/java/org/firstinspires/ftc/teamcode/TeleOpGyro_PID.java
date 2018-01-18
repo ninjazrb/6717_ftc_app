@@ -18,30 +18,48 @@ import java.text.DecimalFormat;
  */
 
 @com.qualcomm.robotcore.eventloop.opmode.TeleOp
-public class TeleOpGyro extends BasicOpMode_Iterative {
+public class TeleOpGyro_PID extends BasicOpMode_Iterative {
+
+    double maxWheelSpeed = .5;
 
     // Motor Declarations
-    private DcMotor left_f;
-    private DcMotor right_f;
-    private DcMotor left_b;
-    private DcMotor right_b;
-    private DcMotor arm;
-    private DcMotor collection;
-    private Servo gripper;
-    private Servo hammer;
+    DcMotor left_f;
+    DcMotor right_f;
+    DcMotor left_b;
+    DcMotor right_b;
+    DcMotor arm;
+    DcMotor collection_left;
+    DcMotor collection_right;
+    Servo gripper;
 
     // Sound Variables
-    private SoundPool mySound;
-    private int lionID;
-    private int alanID;
-    private int hornID;
-    private int indianaID;
+    public SoundPool mySound;
+    public int lionID;
+    public int alanID;
+    public int hornID;
+    public int indianaID;
 
     // Sensor Declarations
-    private GyroSensor gyro;
+    GyroSensor gyro;
 
-    //Pid Declarations
+    //Pid Variables
+    private final double drivePidKp = 1;    // Tuning variable for PID.
+    private final double drivePidTi = 1.0;  // Eliminate integral error in 1 sec.
+    private final double drivePidTd = 0.1;  // Account for error in 0.1 sec.
+    // Protect against integral windup by limiting integral term.
+    private final double drivePidIntMax = maxWheelSpeed;  // Limit to max speed.
 
+    //Misc Pid
+    private final double ticksPerRevolution = 1000;  // Get for your motor and gearing.
+    private double prevTime;  // The last time loop() was called.
+    private int prevLfEncoderPosition;   // Encoder tick at last call to loop().
+    private int prevRfEncoderPosition;  // Encoder tick at last call to loop().
+    private int prevLbEncoderPosition;  // Encoder tick at last call to loop().
+    private int prevRbEncoderPosition;  // Encoder tick at last call to loop().
+    private Pid lfPid = null;
+    private Pid rfPid = null;
+    private Pid lbPid = null;
+    private Pid rbPid = null;
 
     DecimalFormat two_decimal = new DecimalFormat("#.##");
 
@@ -54,20 +72,21 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
         right_f = hardwareMap.dcMotor.get("right_f");
         arm = hardwareMap.dcMotor.get("arm");
         gripper = hardwareMap.servo.get("gripper");
-        collection = hardwareMap.dcMotor.get("collection");
-        hammer = hardwareMap.servo.get("hammer");
+        /*collection_left = hardwareMap.dcMotor.get("collection_left");
+        collection_right = hardwareMap.dcMotor.get("collection_right");*/
 
         // Map sensors
         gyro = hardwareMap.gyroSensor.get("gyro");
 
         // Run with encoders
-        left_b.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        left_f.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        right_b.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        right_f.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        left_b.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        left_f.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        right_b.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        right_f.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
 
         right_b.setDirection(DcMotor.Direction.REVERSE);
         right_f.setDirection(DcMotor.Direction.REVERSE);
+        /*collection_left.setDirection(DcMotor.Direction.REVERSE);*/
 
         gripper.setPosition(1);
 
@@ -79,6 +98,22 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
         alanID = mySound.load(hardwareMap.appContext, R.raw.alan, 1); // PSM
         hornID = mySound.load(hardwareMap.appContext, R.raw.horn, 1); // PSM
         indianaID = mySound.load(hardwareMap.appContext, R.raw.indiana, 1);
+
+        //Pid
+        prevTime = 0;
+        prevLfEncoderPosition = left_f.getCurrentPosition();
+        prevRfEncoderPosition = right_f.getCurrentPosition();
+        prevLbEncoderPosition = left_b.getCurrentPosition();
+        prevRbEncoderPosition = right_b.getCurrentPosition();
+
+        lfPid = new Pid(drivePidKp, drivePidTi, drivePidTd,
+                -drivePidIntMax, drivePidIntMax);
+        rfPid = new Pid(drivePidKp, drivePidTi, drivePidTd,
+                -drivePidIntMax, drivePidIntMax);
+        lbPid = new Pid(drivePidKp, drivePidTi, drivePidTd,
+                -drivePidIntMax, drivePidIntMax);
+        rbPid = new Pid(drivePidKp, drivePidTi, drivePidTd,
+                -drivePidIntMax, drivePidIntMax);
     }
 
     @Override
@@ -91,18 +126,17 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
         armPower();
         gripperPower();
         sounds();
-        hammer.setPosition(.15);
     }
 
     private double gyroRadians(double intHeading) {
         return Math.toRadians(intHeading);
     }
 
-    private double leftJoyAngle() {
+    public double leftJoyAngle() {
         return Math.atan2(gamepad1.left_stick_y, gamepad1.left_stick_x);
     }
 
-    private void setDrivePower(Double angleOfTravel, double speed, double skew) {
+    public void setDrivePower(Double angleOfTravel, double speed, double skew) {
         double RobotAngle = angleOfTravel - Math.PI/4;
 
         double lf = -Math.sin(RobotAngle);
@@ -110,17 +144,28 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
         double rf = -Math.cos(RobotAngle);
         double lb = -Math.cos(RobotAngle);
 
-        /*double powers[] = driveSmoothing(lf, rb, rf, lb);*/
+        double powers[] = driveSmoothing(lf, rb, rf, lb);
 
-        lf = Range.clip(lf * (speed*.5) + (skew*.5), -.5, .5);
-        rb = Range.clip(rb * (speed*.5) - (skew*.5), -.5, .5);
-        rf = Range.clip(rf * (speed*.5) - (skew*.5), -.5, .5);
-        lb = Range.clip(lb * (speed*.5) + (skew*.5), -.5, .5);
+        lf = Range.clip(powers[0] * speed - skew, -maxWheelSpeed, maxWheelSpeed);
+        rb = Range.clip(powers[1] * speed + skew, -maxWheelSpeed , maxWheelSpeed);
+        rf = Range.clip(powers[2] * speed + skew, -maxWheelSpeed, maxWheelSpeed);
+        lb = Range.clip(powers[3] * speed - skew, -maxWheelSpeed, maxWheelSpeed);
 
         /*telemetry.addData("Left Front/Right Front: ", two_decimal.format(lf) + "/" + two_decimal.format(rf));
         telemetry.addData("Left Back/Right Back: ", two_decimal.format(lb) + "/" + two_decimal.format(rb));*/
         telemetry.addData("lf/rf: ", left_f.getCurrentPosition() + right_f.getCurrentPosition());
         telemetry.update();
+
+        double[] speeds = pid();
+        double lfSpeed = speeds[0];
+        double rfSpeed = speeds[1];
+        double lbSpeed = speeds[2];
+        double rbSpeed = speeds[3];
+        double deltaTime = speeds[4];
+        lf = lfPid.update(lf, lfSpeed, deltaTime);
+        rf = rfPid.update(lf, lfSpeed, deltaTime);
+        lb = lbPid.update(lf, lfSpeed, deltaTime);
+        rb = rbPid.update(lf, lfSpeed, deltaTime);
 
         left_b.setPower(lb);
         left_f.setPower(lf);
@@ -128,9 +173,9 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
         right_b.setPower(rb);
     }
 
-    private void armPower() {
+    public void armPower() {
         if(gamepad1.left_bumper) {
-            arm.setPower(-.1);
+            arm.setPower(-1);
         }
         else if(gamepad1.right_bumper) {
             arm.setPower(1);
@@ -140,7 +185,7 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
         }
     }
 
-    private double[] driveSmoothing(double lf, double rb, double rf, double lb) {
+    public double[] driveSmoothing(double lf, double rb, double rf, double lb) {
         double final_lf;
         double final_rb;
         double final_rf;
@@ -152,28 +197,28 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
         double math_lb = Math.abs(lf);
 
         if(math_lf >= math_rb && math_lf >= math_rf && math_lf >= math_lb) {
-            final_lf = .5 * (lf/math_lf);
+            final_lf = maxWheelSpeed * (lf/math_lf);
             final_rb = final_lf * (rb/lf);
             final_rf = final_lf * (rf/lf);
             final_lb = final_lf * (lb/lf);
         }
 
         else if(math_rb >= math_lf && math_rb >= math_rf && math_rb >= math_lb) {
-            final_rb = .5 * (rb/math_rb);
+            final_rb = maxWheelSpeed * (rb/math_rb);
             final_lf = final_rb * (lf/rb);
             final_rf = final_rb * (rf/rb);
             final_lb = final_rb * (lb/rb);
         }
 
         else if(math_rf >= math_rb && math_rf >= math_lf && math_rf >= math_lb) {
-            final_rf = .5 * (rf/math_rf);
+            final_rf = maxWheelSpeed * (rf/math_rf);
             final_rb = final_rf * (rb/rf);
             final_lf = final_rf * (lf/rf);
             final_lb = final_rf * (lb/rf);
         }
 
         else if(math_lb >= math_rb && math_lb >= math_rf && math_lb >= math_lf) {
-            final_lb = .5 * (lb/math_lb);
+            final_lb = maxWheelSpeed * (lb/math_lb);
             final_rb = final_lb * (rb/lb);
             final_rf = final_lb * (rf/lb);
             final_lf = final_lb * (lf/lb);
@@ -206,8 +251,8 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
         return powers;
     }
 
-    private void gripperPower() {
-        if (gamepad1.y) {
+    public void gripperPower() {
+        if (gamepad1.a) {
             telemetry.update();
             gripper.setPosition(.5);
         }
@@ -216,23 +261,18 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
             gripper.setPosition(1);
         }
 
-        if (gamepad1.a) {
-            gripper.setPosition(.7);
+        /*if (gamepad1.x) {
+            collection_left.setPower(1);
+            collection_right.setPower(1);
         }
 
-        if (gamepad1.left_trigger > 0) {
-            collection.setPower(-1);
-        }
-
-        if(gamepad1.right_trigger > 0) {
-            collection.setPower(1);
-        }
-        if (gamepad1.x) {
-            collection.setPower(0);
-        }
+        if(gamepad1.y) {
+            collection_left.setPower(-1);
+            collection_right.setPower(-1);
+        }*/
     }
 
-    private void sounds() {
+    public void sounds() {
         if(gamepad2.x) {
             mySound.play(lionID, 1, 1, 1, 0, 1);
         }
@@ -247,5 +287,32 @@ public class TeleOpGyro extends BasicOpMode_Iterative {
         }
     }
 
-}
+    public double[] pid() {
+        double[] speeds = new double[5];
 
+        double deltaTime = time - prevTime;
+        double lfSpeed = (left_f.getCurrentPosition() - prevLfEncoderPosition) /
+                deltaTime;
+        double rfSpeed = (right_f.getCurrentPosition() - prevRfEncoderPosition) /
+                deltaTime;
+        double lbSpeed = (left_b.getCurrentPosition() - prevLbEncoderPosition) /
+                deltaTime;
+        double rbSpeed = (right_b.getCurrentPosition() - prevRbEncoderPosition) /
+                deltaTime;
+
+        prevTime = time;
+        prevLfEncoderPosition = left_f.getCurrentPosition();
+        prevRfEncoderPosition = right_f.getCurrentPosition();
+        prevLbEncoderPosition = left_b.getCurrentPosition();
+        prevRbEncoderPosition = right_b.getCurrentPosition();
+
+        speeds[0] = lfSpeed;
+        speeds[1] = rfSpeed;
+        speeds[2] = lbSpeed;
+        speeds[3] = rbSpeed;
+        speeds[4] = deltaTime;
+
+        return speeds;
+    }
+
+}
